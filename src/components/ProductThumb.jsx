@@ -1,5 +1,7 @@
-// Deterministic gradient placeholder in place of real product photography.
-// Swap for <img src={product.imageUrl} /> once the backend serves real assets.
+import { useEffect, useState } from "react";
+import api from "../service/api";
+
+// Use the product image when available and a deterministic gradient otherwise.
 const PALETTES = [
   ["#7c5cfc", "#22d3c7"],
   ["#22d3c7", "#4c3a9e"],
@@ -13,18 +15,86 @@ function hash(str) {
 }
 
 export default function ProductThumb({ id, className = "", imageUrl }) {
-  if (imageUrl) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const [displayImageUrl, setDisplayImageUrl] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl;
+    setImageFailed(false);
+
+    if (!imageUrl) {
+      setDisplayImageUrl("");
+      return () => {
+        active = false;
+      };
+    }
+
+    let sourceUrl;
+    try {
+      sourceUrl = new URL(imageUrl, window.location.origin);
+    } catch (error) {
+      console.warn("Could not parse product image URL.", error);
+      setDisplayImageUrl("");
+      setImageFailed(true);
+      return () => {
+        active = false;
+      };
+    }
+
+    const apiOrigin = new URL(
+      api.defaults.baseURL,
+      window.location.origin,
+    ).origin;
+
+    if (sourceUrl.origin !== apiOrigin) {
+      setDisplayImageUrl(imageUrl);
+      return () => {
+        active = false;
+      };
+    }
+
+    setDisplayImageUrl("");
+    api
+      .get(sourceUrl.href, { responseType: "blob" })
+      .then(({ data }) => {
+        if (!data.size) {
+          throw new Error("The image response was empty.");
+        }
+
+        objectUrl = URL.createObjectURL(data);
+        if (active) {
+          setDisplayImageUrl(objectUrl);
+        } else {
+          URL.revokeObjectURL(objectUrl);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          console.warn(`Could not load product image ${imageUrl}.`, error);
+          setImageFailed(true);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [imageUrl]);
+
+  if (displayImageUrl && !imageFailed) {
     return (
       <div
         className={`relative overflow-hidden rounded-lg ${className}`}
         style={{ border: "1px solid #232c42" }}
       >
         <img
-          src={imageUrl}
+          src={displayImageUrl}
           alt=""
           className="h-full w-full object-cover"
           loading="lazy"
           decoding="async"
+          onError={() => setImageFailed(true)}
         />
       </div>
     );

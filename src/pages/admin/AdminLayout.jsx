@@ -7,15 +7,19 @@ import {
   Users,
   BarChart3,
   Settings,
+  Headphones,
   ArrowLeft,
+  Tags,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/admin/inventory", label: "Inventory", icon: Box },
+  { to: "/admin/categories", label: "Categories", icon: Tags },
   { to: "/admin/orders", label: "Orders", icon: ShoppingBag },
   { to: "/admin/customers", label: "Customers", icon: Users },
+  { to: "/admin/contacts", label: "Contacts & Ops", icon: Headphones },
   { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/admin/settings", label: "Settings", icon: Settings },
 ];
@@ -63,15 +67,7 @@ export default function AdminLayout() {
             })}
           </nav>
 
-          <div className="mt-10 rounded-3xl border border-border bg-void/80 p-4 text-sm text-gray-400">
-            <p className="text-xs uppercase tracking-[0.3em] text-gray-500">
-              Admin panel
-            </p>
-            <p className="mt-3 leading-relaxed text-gray-400">
-              Manage your storefront, orders, and product inventory from a
-              single dashboard.
-            </p>
-          </div>
+          <div className="mt-10 rounded-3xl border border-border bg-void/80 p-4 text-sm text-gray-400" />
 
           <div className="mt-8 flex flex-col gap-3">
             <Link

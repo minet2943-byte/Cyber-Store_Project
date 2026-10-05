@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useParams,
   Link,
@@ -12,25 +12,93 @@ import StarRating from "../../components/StarRating";
 import Badge from "../../components/Badge";
 import Button from "../../components/Button";
 import ProductCard from "../../components/ProductCard";
-import { getProduct, getRelated, categories } from "../../data/products";
+import {
+  categories as fallbackCategories,
+  getProduct as getFallbackProduct,
+  getRelated as getFallbackRelated,
+} from "../../data/products.js";
+import { getCategories } from "../../service/categoryApi";
+import { getProductById } from "../../service/productApi";
 import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const product = getProduct(id);
+  const [product, setProduct] = useState(() => getFallbackProduct(id));
+  const [categories, setCategories] = useState(fallbackCategories);
+  const [loading, setLoading] = useState(true);
   const { addToCart } = useCart();
   const { isAuthenticated, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    let active = true;
+
+    const loadProduct = async () => {
+      try {
+        const [productResult, categoryResult] = await Promise.allSettled([
+          getProductById(id),
+          getCategories(),
+        ]);
+
+        if (!active) return;
+
+        if (productResult.status === "fulfilled") {
+          setProduct(productResult.value || getFallbackProduct(id));
+        } else {
+          console.warn("Could not load product details.", productResult.reason);
+          setProduct(getFallbackProduct(id));
+        }
+
+        if (categoryResult.status === "fulfilled") {
+          setCategories(categoryResult.value);
+        } else {
+          console.warn("Could not load product categories.", categoryResult.reason);
+          setCategories(fallbackCategories);
+        }
+      } catch (error) {
+        console.warn("Product detail fallback data loaded.", error);
+        if (active) {
+          setProduct(getFallbackProduct(id));
+          setCategories(fallbackCategories);
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadProduct();
+
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
   const [variant, setVariant] = useState(product?.variants?.[0] ?? null);
   const [qty, setQty] = useState(1);
   const [activeImg, setActiveImg] = useState(0);
 
+  useEffect(() => {
+    setVariant(product?.variants?.[0] ?? null);
+    setQty(1);
+    setActiveImg(0);
+  }, [product]);
+
+  if (loading && !product) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-gray-400">
+        Loading product details...
+      </div>
+    );
+  }
+
   if (!product) return <Navigate to="/products" replace />;
 
-  const category = categories.find((c) => c.id === product.category);
-  const related = getRelated(product);
+  const category = categories.find(
+    (c) => String(c.id) === String(product.category),
+  );
+  const related = getFallbackRelated(product);
   const price = product.price + (variant?.priceDelta ?? 0);
   const outOfStock = product.stock === 0;
 
@@ -55,20 +123,26 @@ export default function ProductDetail() {
         <span className="text-gray-300">{product.name}</span>
       </nav>
 
-      <div className="grid gap-10 lg:grid-cols-2">
+      <div className="grid items-start gap-8 lg:grid-cols-12 lg:gap-12">
         {/* Gallery */}
-        <div>
-          <ProductThumb
-            id={`${product.id}-${activeImg}`}
-            imageUrl={product.images?.[activeImg] || product.imageUrl}
-            className="aspect-square w-full"
-          />
+        <div className="w-full max-w-md lg:col-span-5">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <ProductThumb
+              id={`${product.id}-${activeImg}`}
+              imageUrl={product.images?.[activeImg] || product.imageUrl}
+              className="h-[320px] sm:h-[380px] w-full"
+            />
+          </div>
           <div className="mt-3 flex gap-3">
             {[0, 1, 2].map((i) => (
               <button
                 key={i}
                 onClick={() => setActiveImg(i)}
-                className={`h-16 w-16 rounded-lg border ${activeImg === i ? "border-violet" : "border-border"}`}
+                className={`h-14 w-14 overflow-hidden rounded-lg border transition-all ${
+                  activeImg === i
+                    ? "border-violet ring-2 ring-violet/20"
+                    : "border-border opacity-70 hover:opacity-100"
+                }`}
                 aria-label={`View image ${i + 1}`}
               >
                 <ProductThumb
@@ -82,7 +156,7 @@ export default function ProductDetail() {
         </div>
 
         {/* Details */}
-        <div>
+        <div className="lg:col-span-7">
           {product.tag && (
             <Badge
               tone={
@@ -96,7 +170,7 @@ export default function ProductDetail() {
               {product.tag}
             </Badge>
           )}
-          <h1 className="mt-3 font-mono text-3xl font-bold text-white">
+          <h1 className="mt-2.5 font-mono text-xl sm:text-2xl font-bold text-white">
             {product.name}
           </h1>
           <div className="mt-2">
@@ -113,7 +187,7 @@ export default function ProductDetail() {
             {product.description}
           </p>
 
-          {product.variants.length > 1 && (
+          {product.variants?.length > 1 && (
             <div className="mt-6">
               <h3 className="font-mono text-xs uppercase tracking-wider text-gray-500">
                 Variant
@@ -191,22 +265,24 @@ export default function ProductDetail() {
             </p>
           )}
 
-          <div className="mt-8 border-t border-border pt-6">
-            <h3 className="font-mono text-xs uppercase tracking-wider text-gray-500">
-              Specifications
-            </h3>
-            <dl className="mt-3 divide-y divide-border">
-              {product.specs.map((s) => (
-                <div
-                  key={s.label}
-                  className="flex justify-between py-2 text-sm"
-                >
-                  <dt className="text-gray-500">{s.label}</dt>
-                  <dd className="text-gray-200">{s.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          {product.specs?.length > 0 && (
+            <div className="mt-8 border-t border-border pt-6">
+              <h3 className="font-mono text-xs uppercase tracking-wider text-gray-500">
+                Specifications
+              </h3>
+              <dl className="mt-3 divide-y divide-border">
+                {product.specs.map((s) => (
+                  <div
+                    key={s.label}
+                    className="flex justify-between py-2 text-sm"
+                  >
+                    <dt className="text-gray-500">{s.label}</dt>
+                    <dd className="text-gray-200">{s.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
         </div>
       </div>
 

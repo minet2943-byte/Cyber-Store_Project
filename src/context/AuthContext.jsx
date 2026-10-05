@@ -1,108 +1,165 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import api from "../service/api";
 
 const AuthContext = createContext(null);
-const STORAGE_KEY = "cyber-store-auth";
-const USERS_KEY = "cyber-store-users";
-const ADMIN_EMAIL = "admin@cyberstore.com";
-const ADMIN_PASSWORD = "Admin@123";
 
-function loadStoredUser() {
-  if (typeof window === "undefined") return null;
+const isAdminRole = (roleValue) => {
+  if (roleValue == null) return false;
+
+  const roleText = Array.isArray(roleValue)
+    ? roleValue.join(" ")
+    : String(roleValue);
+
+  const normalized = roleText.toLowerCase().replace(/[_-]/g, " ");
+  return (
+    normalized.includes("admin") ||
+    normalized.includes("super admin") ||
+    normalized.includes("superadmin")
+  );
+};
+
+const getStoredUser = () => {
   try {
-    return JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+    const savedUser = localStorage.getItem("user");
+    return savedUser ? JSON.parse(savedUser) : null;
   } catch {
     return null;
   }
-}
+};
 
+const getUserRoleFromToken = (jwtToken) => {
+  if (!jwtToken || typeof jwtToken !== "string") return null;
 
-function saveStoredUser(user) {
-  if (typeof window === "undefined") return;
-  if (user) {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-  } else {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function loadStoredUsers() {
-  if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(window.localStorage.getItem(USERS_KEY)) || [];
-  } catch {
-    return [];
-  }
-}
+    const payload = jwtToken.split(".")[1];
+    if (!payload) return null;
 
-function saveStoredUsers(users) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => loadStoredUser());
-  const [users, setUsers] = useState(() => loadStoredUsers());
-
-  useEffect(() => {
-    saveStoredUser(user);
-  }, [user]);
-
-  useEffect(() => {
-    saveStoredUsers(users);
-  }, [users]);
-
-  const register = ({ name, email, password }) => {
-    if (email === ADMIN_EMAIL || users.some((user) => user.email === email)) {
-      return { success: false, message: "Email already registered." };
-    }
-
-    const newUser = { name, email, password, role: "customer" };
-    setUsers((prevUsers) => [...prevUsers, newUser]);
-    setUser(newUser);
-    return { success: true, user: newUser };
-  };
-
-  const login = ({ email, password }) => {
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      const adminUser = { email, role: "admin" };
-      setUser(adminUser);
-      return { success: true, user: adminUser };
-    }
-
-    const existingUser = users.find(
-      (existing) => existing.email === email && existing.password === password,
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(
+      decodeURIComponent(
+        atob(normalized)
+          .split("")
+          .map((char) => `%${`00${char.charCodeAt(0).toString(16)}`.slice(-2)}`)
+          .join(""),
+      ),
     );
 
-    if (existingUser) {
-      setUser(existingUser);
-      return { success: true, user: existingUser };
+    return decoded.role ?? decoded.userRole ?? decoded.roles ?? null;
+  } catch {
+    return null;
+  }
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(() => getStoredUser());
+  const [token, setToken] = useState(() => localStorage.getItem("token"));
+  const [loading, setLoading] = useState(true);
+
+  // Sync token state changes with localStorage and set user state
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem("token", token);
+
+      const savedUser = getStoredUser();
+      if (!savedUser) {
+        const roleFromToken = getUserRoleFromToken(token);
+        if (roleFromToken) {
+          setUser((prev) => prev ?? { role: roleFromToken });
+        }
+      }
+    } else {
+      localStorage.removeItem("token");
+      setUser(null);
+      localStorage.removeItem("user");
+    }
+    setLoading(false);
+  }, [token]);
+
+  /**
+   * Register a new user
+   * @param {Object} credentials - { name, email, password }
+   */
+  const register = async (userData) => {
+    const response = await api.post("/auth/register", userData);
+    const payload = response.data?.data ?? response.data;
+    const jwtToken = payload?.token ?? payload?.jwt ?? payload?.accessToken;
+    const userProfile =
+      payload?.user ?? payload?.profile ?? payload?.data?.user ?? payload;
+
+    if (jwtToken) {
+      setToken(jwtToken);
+
+      const finalUser = userProfile || { role: getUserRoleFromToken(jwtToken) };
+      if (finalUser) {
+        setUser(finalUser);
+        localStorage.setItem("user", JSON.stringify(finalUser));
+      }
+
+      return { success: true, user: finalUser };
     }
 
-    return { success: false, message: "Invalid email or password." };
+    return { success: false, message: "Token not received from server." };
   };
 
-  const logout = () => setUser(null);
+  /**
+   * Log in an existing user
+   */
+  const login = async (credentials) => {
+    const response = await api.post("/auth/login", credentials);
+    const payload = response.data?.data ?? response.data;
+    const jwtToken = payload?.token ?? payload?.jwt ?? payload?.accessToken;
+    const userProfile =
+      payload?.user ?? payload?.profile ?? payload?.data?.user ?? payload;
+
+    if (jwtToken) {
+      setToken(jwtToken);
+
+      const finalUser = userProfile || { role: getUserRoleFromToken(jwtToken) };
+      if (finalUser) {
+        setUser(finalUser);
+        localStorage.setItem("user", JSON.stringify(finalUser));
+      }
+
+      return { success: true, user: finalUser };
+    }
+
+    return { success: false, message: "Invalid credentials." };
+  };
+
+  /**
+   * Log out user and purge stored token
+   */
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("jwt");
+    localStorage.removeItem("auth_token");
+  };
+
+  const value = {
+    user,
+    token,
+    isAuthenticated: Boolean(token),
+    isAdmin: isAdminRole(user?.role ?? user?.userRole ?? user?.roles),
+    register,
+    login,
+    logout,
+    loading,
+  };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: Boolean(user),
-        isAdmin: user?.role === "admin",
-        login,
-        logout,
-        register,
-      }}
-    >
-      {children}
+    <AuthContext.Provider value={value}>
+      {!loading && children}
     </AuthContext.Provider>
   );
-}
+};
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-}
+};

@@ -8,6 +8,8 @@ import { useStoreSettings } from "../context/StoreSettingsContext";
 const links = [
   { to: "/", label: "Home" },
   { to: "/products", label: "Products" },
+  { to: "/about", label: "About" },
+  { to: "/contact", label: "Contact" },
   { to: "/cart", label: "Cart" },
 ];
 
@@ -21,8 +23,7 @@ export default function Navbar() {
     : links;
 
   const linkClass = ({ isActive }) =>
-    `text-sm font-medium transition-colors ${
-      isActive ? "text-violet-soft" : "text-gray-300 hover:text-white"
+    `text-sm font-medium transition-colors ${isActive ? "text-violet-soft" : "text-gray-300 hover:text-white"
     }`;
 
   return (
@@ -108,7 +109,7 @@ export default function Navbar() {
               </Link>
               <Link
                 to="/register"
-                className="rounded-lg bg-violet px-3 py-2 text-sm font-semibold text-black hover:bg-violet-soft"
+                className="rounded-lg bg-violet px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-violet-soft hover:shadow-violet/20"
               >
                 Register
               </Link>

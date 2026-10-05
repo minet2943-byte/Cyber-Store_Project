@@ -54,6 +54,18 @@ export default function Settings() {
             required
           />
           <Field
+            label="Facebook Page URL (Owner)"
+            value={form.facebookUrl || ""}
+            onChange={update("facebookUrl")}
+            placeholder="https://facebook.com/your-page"
+          />
+          <Field
+            label="Telegram Username / Link"
+            value={form.telegramUrl || ""}
+            onChange={update("telegramUrl")}
+            placeholder="https://t.me/yourusername"
+          />
+          <Field
             label="Banner title"
             value={form.bannerTitle}
             onChange={update("bannerTitle")}

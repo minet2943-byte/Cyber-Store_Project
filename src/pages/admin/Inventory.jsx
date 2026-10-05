@@ -1,28 +1,130 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Download, Plus, Tags } from "lucide-react";
-import { categories, products } from "../../data/products";
+import {
+  categories as fallbackCategories,
+  products as fallbackProducts,
+} from "../../data/products.js";
 import ProductThumb from "../../components/ProductThumb";
+import {
+  deleteProduct as deleteProductRequest,
+  getProducts,
+} from "../../service/productApi";
+import { getCategories } from "../../service/categoryApi";
+
+const normalizeProducts = (items = []) =>
+  items.map((product, index) => ({
+    ...product,
+    id: product?.id ?? product?.productId ?? product?.productID ?? index + 1,
+    name: product?.name ?? product?.productName ?? `Product ${index + 1}`,
+    category:
+      product?.category ?? product?.categoryId ?? product?.category_id ?? "",
+    price: Number(product?.price ?? product?.productPrice ?? 0),
+    stock: Number(product?.stock ?? product?.productStock ?? 0),
+    imageUrl: product?.imageUrl ?? product?.image_url ?? "",
+  }));
+
+const normalizeCategories = (items = []) =>
+  items.map((category, index) => ({
+    ...category,
+    id:
+      category?.id ??
+      category?.categoryId ??
+      category?.category_id ??
+      index + 1,
+    name:
+      category?.name ??
+      category?.categoryName ??
+      category?.category ??
+      `Category ${index + 1}`,
+  }));
 
 export default function Inventory() {
   const [search, setSearch] = useState("");
-  const [version, setVersion] = useState(0);
-  const deleteProduct = (id) => {
-    const index = products.findIndex((product) => product.id === id);
-    if (index === -1) return;
-    products.splice(index, 1);
-    setVersion((version) => version + 1);
+  const [products, setProducts] = useState(normalizeProducts(fallbackProducts));
+  const [categories, setCategories] = useState(
+    normalizeCategories(fallbackCategories),
+  );
+  const [deletingProductId, setDeletingProductId] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      try {
+        const [productData, categoryData] = await Promise.all([
+          getProducts(),
+          getCategories(),
+        ]);
+
+        const loadedProducts = normalizeProducts(
+          Array.isArray(productData)
+            ? productData
+            : productData?.data || fallbackProducts,
+        );
+
+        const loadedCategories = normalizeCategories(
+          Array.isArray(categoryData)
+            ? categoryData
+            : categoryData?.data || fallbackCategories,
+        );
+
+        if (!active) return;
+
+        setProducts(loadedProducts);
+        setCategories(loadedCategories);
+      } catch (error) {
+        console.warn(
+          "Inventory fallback used because backend is offline.",
+          error,
+        );
+        if (active) {
+          setProducts(normalizeProducts(fallbackProducts));
+          setCategories(normalizeCategories(fallbackCategories));
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const deleteProduct = async (id, name) => {
+    if (!window.confirm(`Delete "${name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingProductId(id);
+    setDeleteError("");
+
+    try {
+      await deleteProductRequest(id);
+      setProducts((currentProducts) =>
+        currentProducts.filter(
+          (product) => String(product.id) !== String(id),
+        ),
+      );
+    } catch (error) {
+      setDeleteError(error.message || "Failed to delete product. Please try again.");
+    } finally {
+      setDeletingProductId(null);
+    }
   };
+
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
     return query
       ? products.filter((product) =>
-          `${product.name} ${product.id} ${product.category}`
+          `${product.name ?? ""} ${product.id ?? ""} ${product.category ?? ""}`
             .toLowerCase()
             .includes(query),
         )
       : products;
-  }, [search, version]);
+  }, [search, products]);
 
   return (
     <div className="space-y-8">
@@ -66,6 +168,11 @@ export default function Inventory() {
             className="w-full max-w-xs rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-violet focus:outline-none"
           />
         </div>
+        {deleteError && (
+          <p role="alert" className="mb-4 text-sm text-danger">
+            {deleteError}
+          </p>
+        )}
         <div className="overflow-x-auto rounded-3xl border border-border bg-void">
           <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
             <thead>
@@ -97,11 +204,12 @@ export default function Inventory() {
                     {product.id}
                   </td>
                   <td className="px-6 py-4 text-gray-300">
-                    {categories.find((item) => item.id === product.category)
-                      ?.name ?? product.category}
+                    {categories.find(
+                      (item) => String(item.id) === String(product.category),
+                    )?.name ?? product.category}
                   </td>
                   <td className="px-6 py-4 text-gray-300">
-                    ${product.price.toFixed(2)}
+                    ${Number(product.price ?? 0).toFixed(2)}
                   </td>
                   <td className="px-6 py-4">
                     <span
@@ -118,15 +226,19 @@ export default function Inventory() {
                     <div className="flex gap-3">
                       <Link
                         to={`/admin/inventory/${product.id}/edit`}
+                        state={{ product }}
                         className="text-teal-soft hover:text-white"
                       >
                         Edit
                       </Link>
                       <button
-                        onClick={() => deleteProduct(product.id)}
-                        className="text-danger hover:text-red-300"
+                        onClick={() => deleteProduct(product.id, product.name)}
+                        disabled={deletingProductId !== null}
+                        className="text-danger hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Delete
+                        {deletingProductId === product.id
+                          ? "Deleting..."
+                          : "Delete"}
                       </button>
                     </div>
                   </td>
