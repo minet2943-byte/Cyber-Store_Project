@@ -1,4 +1,11 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import {
+  getWebsiteSetting,
+  postWebsiteSetting,
+  putWebsiteSetting,
+  updateWebsiteSetting,
+  deleteWebsiteSetting,
+} from "../service/setting";
 
 const StoreSettingsContext = createContext(null);
 const STORAGE_KEY = "cyber-store-settings";
@@ -97,6 +104,8 @@ export const DEFAULT_OPERATING_HOURS = {
 };
 
 const DEFAULT_SETTINGS = {
+  settingId: 1,
+  websiteName: "CYBER-STORE",
   siteName: "CYBER-STORE",
   logoName: "CYBER-STORE",
   bannerTitle: "Next-Gen Performance Architecture.",
@@ -117,9 +126,12 @@ function loadSettings() {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
     const raw = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}");
+    const websiteName = raw.websiteName || raw.siteName || DEFAULT_SETTINGS.websiteName;
     return {
       ...DEFAULT_SETTINGS,
       ...raw,
+      websiteName,
+      siteName: websiteName,
       operatingHours: {
         ...DEFAULT_OPERATING_HOURS,
         ...(raw.operatingHours || {}),
@@ -136,12 +148,113 @@ function loadSettings() {
 export function StoreSettingsProvider({ children }) {
   const [settings, setSettings] = useState(loadSettings);
 
-  const updateSettings = (nextSettings) => {
+  // Load website settings from backend API on mount
+  useEffect(() => {
+    let active = true;
+
+    const fetchApiSettings = async () => {
+      try {
+        const apiSettings = await getWebsiteSetting();
+        if (active && apiSettings) {
+          setSettings((current) => {
+            const websiteName =
+              apiSettings.websiteName || apiSettings.siteName || current.websiteName;
+            const merged = {
+              ...current,
+              ...apiSettings,
+              websiteName,
+              siteName: websiteName,
+            };
+
+            try {
+              window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+            } catch {
+              // Ignore storage errors
+            }
+
+            return merged;
+          });
+        }
+      } catch (error) {
+        console.warn("Could not load website settings from API, using local fallback.", error);
+      }
+    };
+
+    fetchApiSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const updateSettings = async (nextSettings) => {
+    const websiteName =
+      nextSettings.websiteName || nextSettings.siteName || settings.websiteName;
+
+    const merged = {
+      ...nextSettings,
+      websiteName,
+      siteName: websiteName,
+    };
+
     setSettings((current) => {
-      const next = { ...current, ...nextSettings };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      const next = { ...current, ...merged };
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
       return next;
     });
+
+    try {
+      const targetId =
+        merged.settingId ??
+        merged.id ??
+        settings.settingId ??
+        settings.id ??
+        1;
+      await updateWebsiteSetting(targetId, merged);
+    } catch (err) {
+      console.warn("Could not synchronize settings with backend API:", err);
+    }
+  };
+
+  const createSettings = async (data) => {
+    try {
+      const created = await postWebsiteSetting(data);
+      if (created) {
+        setSettings((current) => {
+          const next = { ...current, ...created };
+          try {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+          } catch {
+            // Ignore
+          }
+          return next;
+        });
+      }
+      return created;
+    } catch (err) {
+      console.error("Failed to create settings on API:", err);
+      throw err;
+    }
+  };
+
+  const deleteSettings = async (id) => {
+    try {
+      const targetId = id ?? settings.settingId ?? settings.id ?? 1;
+      await deleteWebsiteSetting(targetId);
+      setSettings(DEFAULT_SETTINGS);
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // Ignore
+      }
+    } catch (err) {
+      console.error("Failed to delete settings on API:", err);
+      throw err;
+    }
   };
 
   // Dedicated helper to add or update a contact channel
@@ -194,6 +307,11 @@ export function StoreSettingsProvider({ children }) {
       value={{
         settings,
         updateSettings,
+        createSettings,
+        deleteSettings,
+        postWebsiteSetting,
+        putWebsiteSetting,
+        deleteWebsiteSetting,
         saveContactChannel,
         deleteContactChannel,
         updateOperatingHours,

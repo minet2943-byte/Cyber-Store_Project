@@ -79,11 +79,17 @@ export default function Home() {
 
               {/* Main Headline */}
               <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl leading-[1.12]">
-                Next-Gen
-                <br />
-                Performance
-                <br />
-                Architecture.
+                {settings.bannerTitle ? (
+                  settings.bannerTitle
+                ) : (
+                  <>
+                    Next-Gen
+                    <br />
+                    Performance
+                    <br />
+                    Architecture.
+                  </>
+                )}
               </h1>
 
               {/* Subtitle Description */}
@@ -132,8 +138,11 @@ export default function Home() {
                   <div className="relative z-10 w-[300px] sm:w-[400px] max-w-full drop-shadow-[0_25px_40px_rgba(0,0,0,0.9)] transition-transform duration-500 hover:scale-[1.02]">
                     <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-2xl">
                       <img
-                        src="https://i.pinimg.com/1200x/10/99/73/10997386f563d5511f2126eb0ed2dff0.jpg"
-                        alt="Next-Gen PC Architecture"
+                        src={
+                          settings.bannerImage ||
+                          "https://i.pinimg.com/1200x/10/99/73/10997386f563d5511f2126eb0ed2dff0.jpg"
+                        }
+                        alt={settings.bannerTitle || "Next-Gen PC Architecture"}
                         className="h-full w-full object-cover"
                       />
                       {/* Glass reflection gloss overlay */}

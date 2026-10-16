@@ -1,26 +1,59 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStoreSettings } from "../../context/StoreSettingsContext";
 
 export default function Settings() {
   const { settings, updateSettings } = useStoreSettings();
   const [form, setForm] = useState(settings);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (settings) {
+      setForm((prev) => ({
+        ...prev,
+        ...settings,
+        siteName: settings.websiteName || settings.siteName || prev.siteName || "",
+        websiteName: settings.websiteName || settings.siteName || prev.websiteName || "",
+      }));
+    }
+  }, [settings]);
+
   const update = (key) => (event) => {
     setSaved(false);
-    setForm((current) => ({ ...current, [key]: event.target.value }));
+    const value = event.target.value;
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "siteName" ? { websiteName: value } : {}),
+      ...(key === "websiteName" ? { siteName: value } : {}),
+    }));
   };
+
   const chooseBanner = (event) => {
     const file = event.target.files?.[0];
-    if (file?.type.startsWith("image/"))
+    if (file?.type.startsWith("image/")) {
+      setSaved(false);
       setForm((current) => ({
         ...current,
         bannerImage: URL.createObjectURL(file),
+        bannerFile: file,
       }));
+    }
   };
-  const submit = (event) => {
+
+  const submit = async (event) => {
     event.preventDefault();
-    updateSettings(form);
-    setSaved(true);
+    setSaving(true);
+    setSaved(false);
+
+    try {
+      await updateSettings(form);
+      setSaved(true);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -104,9 +137,10 @@ export default function Settings() {
           )}
           <button
             type="submit"
-            className="rounded-xl bg-violet px-5 py-2.5 text-sm font-semibold text-black"
+            disabled={saving}
+            className="rounded-xl bg-violet px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
           >
-            Save settings
+            {saving ? "Saving..." : "Save settings"}
           </button>
         </div>
       </form>
