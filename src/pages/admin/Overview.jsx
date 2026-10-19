@@ -1,23 +1,80 @@
-import { Box, ShoppingBag, Users, DollarSign } from "lucide-react";
-
-const stats = [
-  { label: "Products", value: "142", icon: Box, tone: "text-teal-soft" },
-  {
-    label: "Orders",
-    value: "1,248",
-    icon: ShoppingBag,
-    tone: "text-violet-soft",
-  },
-  { label: "Customers", value: "4,712", icon: Users, tone: "text-sky-400" },
-  {
-    label: "Revenue",
-    value: "$98.4K",
-    icon: DollarSign,
-    tone: "text-amber-300",
-  },
-];
+import { useEffect, useState } from "react";
+import {
+  Box,
+  ShoppingBag,
+  Users,
+  DollarSign,
+  CreditCard,
+  RefreshCw,
+  TrendingUp,
+} from "lucide-react";
+import {
+  getDashboardSummary,
+  DEFAULT_DASHBOARD_SUMMARY,
+} from "../../service/dashboard";
 
 export default function Overview() {
+  const [summary, setSummary] = useState(DEFAULT_DASHBOARD_SUMMARY);
+  const [loading, setLoading] = useState(true);
+
+  const loadSummary = async () => {
+    setLoading(true);
+    try {
+      const data = await getDashboardSummary();
+      setSummary(data);
+    } catch (error) {
+      console.warn(
+        "Could not load dashboard summary from API, using fallback:",
+        error,
+      );
+      setSummary({
+        totalProducts: 142,
+        totalCustomers: 4712,
+        totalOrders: 1248,
+        totalPayments: 1240,
+        totalRevenue: 98400,
+        formattedRevenue: "$98.4K",
+        formattedProducts: "142",
+        formattedCustomers: "4,712",
+        formattedOrders: "1,248",
+        formattedPayments: "1,240",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSummary();
+  }, []);
+
+  const stats = [
+    {
+      label: "Products",
+      value: summary.formattedProducts,
+      icon: Box,
+      tone: "text-teal-soft",
+    },
+    {
+      label: "Orders",
+      value: summary.formattedOrders,
+      icon: ShoppingBag,
+      tone: "text-violet-soft",
+    },
+    {
+      label: "Customers",
+      value: summary.formattedCustomers,
+      icon: Users,
+      tone: "text-sky-400",
+    },
+    {
+      label: "Revenue",
+      value: summary.formattedRevenue,
+      icon: DollarSign,
+      tone: "text-amber-300",
+    },
+  ];
+
   return (
     <div className="space-y-8">
       <div>
@@ -28,9 +85,22 @@ export default function Overview() {
             </p>
             <h1 className="mt-2 text-3xl font-semibold text-white">Overview</h1>
           </div>
-          <p className="text-sm text-gray-400">
-            Monitor inventory, orders, and customer activity in one place.
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-gray-400 hidden sm:block">
+              Monitor inventory, orders, and customer activity in one place.
+            </p>
+            <button
+              onClick={loadSummary}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-2xl border border-border bg-card px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:border-violet hover:text-white disabled:opacity-50"
+            >
+              <RefreshCw
+                size={14}
+                className={loading ? "animate-spin" : ""}
+              />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -40,7 +110,7 @@ export default function Overview() {
           return (
             <div
               key={item.label}
-              className="rounded-3xl border border-border bg-card p-6"
+              className="rounded-3xl border border-border bg-card p-6 transition-colors hover:border-violet-dim/60"
             >
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -68,14 +138,49 @@ export default function Overview() {
               Sales performance
             </h2>
           </div>
-          <button className="rounded-2xl border border-violet px-4 py-2 text-sm text-violet-soft hover:bg-violet/10">
-            Export report
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-ok/30 bg-ok/10 px-3 py-1 text-xs font-medium text-ok">
+              <TrendingUp size={14} /> Total Payments:{" "}
+              {summary.formattedPayments || summary.totalPayments}
+            </span>
+          </div>
         </div>
-        <div className="mt-6 h-64 rounded-3xl bg-gradient-to-br from-violet/10 to-teal/10 p-6 text-white">
-          <p className="text-sm text-gray-400">Chart placeholder</p>
-          <div className="mt-6 h-full rounded-3xl bg-[#0f172a]/80 p-4">
-            <div className="h-full rounded-3xl border border-dashed border-border bg-[#08101f]" />
+        <div className="mt-6 h-64 rounded-3xl bg-gradient-to-br from-violet/10 to-teal/10 p-6 text-white flex flex-col justify-between">
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-gray-300 font-mono">
+              Net Volume: {summary.formattedRevenue}
+            </span>
+            <span className="text-gray-400 font-mono text-xs">
+              Live Gateway Summary
+            </span>
+          </div>
+          <div className="h-40 rounded-2xl bg-[#0f172a]/80 p-4 border border-border flex items-center justify-around text-center">
+            <div>
+              <p className="text-xs text-gray-400 font-mono uppercase">
+                Products In Stock
+              </p>
+              <p className="mt-1 text-2xl font-bold text-teal-soft">
+                {summary.formattedProducts}
+              </p>
+            </div>
+            <div className="h-12 w-px bg-border" />
+            <div>
+              <p className="text-xs text-gray-400 font-mono uppercase">
+                Completed Orders
+              </p>
+              <p className="mt-1 text-2xl font-bold text-violet-soft">
+                {summary.formattedOrders}
+              </p>
+            </div>
+            <div className="h-12 w-px bg-border" />
+            <div>
+              <p className="text-xs text-gray-400 font-mono uppercase">
+                Total Customers
+              </p>
+              <p className="mt-1 text-2xl font-bold text-sky-400">
+                {summary.formattedCustomers}
+              </p>
+            </div>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   QrCode,
@@ -16,9 +16,15 @@ import {
   ShoppingBag,
   ExternalLink,
   UserCheck,
+  MapPin,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
+import { createPayment } from "../../service/payment";
+import {
+  getAddressesByCustomerId,
+  createDeliveryAddress,
+} from "../../service/delivery-addresses";
 import Button from "../../components/Button";
 
 const PAYMENT_METHODS = [
@@ -66,13 +72,47 @@ export default function Checkout() {
   const [successOrder, setSuccessOrder] = useState(null);
 
   // Address state
-  const [shippingInfo, setShippingInfo] = useState({
-    fullName: user?.name || "Cyber Customer",
-    phone: "+1 (555) 019-2834",
-    address: "123 Nexus Boulevard, Suite 404",
-    city: "Neo Cyber City",
-    zipCode: "90210",
-  });
+  const [shippingInfo, setShippingInfo] = useState(() => ({
+    fullName: user?.name || user?.customerName || "Cyber Customer",
+    phone:
+      user?.customerTelephone || user?.phone || "+855 12 345 678",
+    address:
+      user?.addressLine1 || user?.address || "Street 271, Sangkat Boeung Keng Kang",
+    city: user?.city || "Phnom Penh",
+    zipCode: user?.postalCode || "12000",
+  }));
+  const [savedAddresses, setSavedAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+
+  useEffect(() => {
+    const custId = user?.customerId ?? user?.id;
+    if (!custId) return;
+
+    let isMounted = true;
+    getAddressesByCustomerId(custId)
+      .then((addresses) => {
+        if (!isMounted) return;
+        if (Array.isArray(addresses) && addresses.length > 0) {
+          setSavedAddresses(addresses);
+          const first = addresses[0];
+          setSelectedAddressId(first.addressId);
+          setShippingInfo({
+            fullName: first.recipientName || user?.name || "Cyber Customer",
+            phone: first.phoneNumber || user?.phone || "+855 12 345 678",
+            address: first.streetAddress || user?.address || "Street 271",
+            city: first.city || user?.city || "Phnom Penh",
+            zipCode: first.postalCode || user?.postalCode || "12000",
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load saved delivery addresses:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, user?.customerId]);
 
   // Card state
   const [cardInfo, setCardInfo] = useState({
@@ -102,6 +142,8 @@ export default function Checkout() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const [errorMessage, setErrorMessage] = useState("");
+
   const handlePlaceOrder = (e) => {
     e.preventDefault();
 
@@ -114,9 +156,17 @@ export default function Checkout() {
       return;
     }
 
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      setErrorMessage("Your cart is empty. Please add items before checking out.");
+      return;
+    }
+
+    if (selectedMethod === "qr" && !qrVerified) {
+      setQrVerified(true);
+    }
 
     setIsProcessing(true);
+    setErrorMessage("");
 
     let paymentLabel = "Credit Card (Visa ending in 4242)";
     if (selectedMethod === "qr") {
@@ -128,19 +178,55 @@ export default function Checkout() {
     }
 
     setTimeout(() => {
-      const order = placeOrder({
-        shipping,
-        tax,
-        total,
-        paymentMethod: paymentLabel,
-        shippingAddress: shippingInfo,
-      });
+      try {
+        const order = placeOrder({
+          shipping,
+          tax,
+          total,
+          paymentMethod: paymentLabel,
+          shippingAddress: shippingInfo,
+        });
 
-      setIsProcessing(false);
-      if (order) {
-        setSuccessOrder(order);
+        setIsProcessing(false);
+        if (order) {
+          setSuccessOrder(order);
+
+          // Record payment with Spring Boot backend API
+          const custId = user?.customerId ?? user?.id;
+          if (custId) {
+            const numericOrderId =
+              parseInt(String(order.id).replace(/\D/g, "").slice(-8), 10) || 1;
+
+            createPayment({
+              customerId: custId,
+              orderId: numericOrderId,
+              paymentType: selectedMethod,
+            }).catch((err) =>
+              console.warn("Could not record payment on backend API:", err),
+            );
+
+            // Persist delivery address if newly entered
+            if (selectedAddressId === null && shippingInfo.address) {
+              createDeliveryAddress({
+                customerId: custId,
+                recipientName: shippingInfo.fullName,
+                phoneNumber: shippingInfo.phone,
+                streetAddress: shippingInfo.address,
+                city: shippingInfo.city,
+                postalCode: shippingInfo.zipCode,
+              }).catch((err) =>
+                console.warn("Could not save delivery address on backend API:", err),
+              );
+            }
+          }
+        } else {
+          setErrorMessage("Failed to process order. Please try again.");
+        }
+      } catch (err) {
+        setIsProcessing(false);
+        setErrorMessage(err.message || "An error occurred while placing order.");
       }
-    }, 800);
+    }, 600);
   };
 
   if (!isAuthenticated) {
@@ -296,6 +382,83 @@ export default function Checkout() {
                 <Lock size={12} className="text-teal-soft" /> Encrypted
               </span>
             </div>
+
+            {/* Saved Addresses Selector (From API: /api/delivery-addresses/customer/{id}) */}
+            {savedAddresses.length > 0 && (
+              <div className="mt-4 border-b border-border/60 pb-4">
+                <div className="mb-2.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-300">
+                    <MapPin size={13} className="text-teal-soft" />
+                    Saved Delivery Addresses ({savedAddresses.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAddressId(null);
+                      setShippingInfo({
+                        fullName: user?.name || user?.customerName || "",
+                        phone: user?.customerTelephone || user?.phone || "",
+                        address: "",
+                        city: "",
+                        zipCode: "",
+                      });
+                    }}
+                    className={`text-[11px] font-mono transition-colors ${
+                      selectedAddressId === null
+                        ? "text-teal-soft font-bold underline"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    + Enter New Address
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {savedAddresses.map((addr) => {
+                    const isSelected = selectedAddressId === addr.addressId;
+                    return (
+                      <button
+                        key={addr.addressId}
+                        type="button"
+                        onClick={() => {
+                          setSelectedAddressId(addr.addressId);
+                          setShippingInfo({
+                            fullName:
+                              addr.recipientName || shippingInfo.fullName,
+                            phone: addr.phoneNumber || shippingInfo.phone,
+                            address:
+                              addr.streetAddress || shippingInfo.address,
+                            city: addr.city || shippingInfo.city,
+                            zipCode: addr.postalCode || shippingInfo.zipCode,
+                          });
+                        }}
+                        className={`group relative flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
+                          isSelected
+                            ? "border-violet bg-violet/10 text-white shadow-sm shadow-violet/20"
+                            : "border-border bg-surface/60 text-gray-300 hover:border-gray-600 hover:bg-surface"
+                        }`}
+                      >
+                        <div className="flex w-full items-center justify-between">
+                          <span className="text-xs font-bold text-white">
+                            {addr.recipientName}
+                          </span>
+                          {isSelected && (
+                            <span className="flex items-center gap-1 rounded bg-violet/30 px-1.5 py-0.5 text-[10px] font-mono text-violet-soft">
+                              <Check size={10} /> Selected
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-1 text-xs text-gray-400">
+                          {addr.streetAddress}
+                        </p>
+                        <p className="text-[11px] text-gray-500">
+                          {addr.city} · {addr.postalCode}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
@@ -634,19 +797,24 @@ export default function Checkout() {
               </div>
             </dl>
 
+            {/* Error Message */}
+            {errorMessage && (
+              <div className="mt-4 rounded-xl border border-danger/40 bg-danger/10 p-3 text-xs text-danger">
+                {errorMessage}
+              </div>
+            )}
+
             {/* Submit Button */}
             <Button
               type="submit"
               size="lg"
               className="mt-6 w-full"
-              disabled={isProcessing || (selectedMethod === "qr" && !qrVerified)}
+              disabled={isProcessing}
             >
               {isProcessing
                 ? "Processing Payment..."
                 : selectedMethod === "qr"
-                  ? qrVerified
-                    ? `Confirm & Pay ($${total.toFixed(2)})`
-                    : `Scan QR Code & Check Box to Proceed`
+                  ? `Confirm & Pay with QR ($${total.toFixed(2)})`
                   : `Place Order ($${total.toFixed(2)})`}
             </Button>
 

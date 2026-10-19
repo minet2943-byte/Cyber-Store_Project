@@ -1,5 +1,12 @@
 import { Link } from "react-router-dom";
-import { Minus, Plus, Trash2, ArrowRight, ShoppingCart } from "lucide-react";
+import {
+  Minus,
+  Plus,
+  Trash2,
+  ArrowRight,
+  ShoppingCart,
+  Loader2,
+} from "lucide-react";
 import ProductThumb from "../../components/ProductThumb";
 import Button from "../../components/Button";
 import { useCart } from "../../context/CartContext";
@@ -8,7 +15,19 @@ const SHIPPING_FLAT = 12;
 const TAX_RATE = 0.08;
 
 export default function Cart() {
-  const { items, updateQty, removeItem, subtotal, unitPrice } = useCart();
+  const { items, updateQty, removeItem, subtotal, unitPrice, loading } =
+    useCart();
+
+  if (loading && items.length === 0) {
+    return (
+      <div className="mx-auto flex max-w-7xl flex-col items-center justify-center px-4 py-24 text-center sm:px-6">
+        <Loader2 size={36} className="animate-spin text-teal-soft" />
+        <p className="mt-4 font-mono text-sm text-gray-400">
+          Loading your cart...
+        </p>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -33,73 +52,89 @@ export default function Cart() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      <h1 className="font-mono text-2xl font-bold text-white">Your Cart</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="font-mono text-2xl font-bold text-white">Your Cart</h1>
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <Loader2 size={14} className="animate-spin text-teal-soft" />
+            <span>Syncing...</span>
+          </div>
+        )}
+      </div>
 
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
         <div className="space-y-4">
-          {items.map((item) => (
-            <div
-              key={item.key}
-              className="flex gap-4 rounded-xl border border-border bg-card p-4"
-            >
-              <ProductThumb
-                id={item.product.id}
-                imageUrl={item.product.imageUrl}
-                className="h-20 w-20 shrink-0"
-              />
-              <div className="flex flex-1 flex-col justify-between">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <Link
-                      to={`/product/${item.product.id}`}
-                      className="font-mono text-sm font-medium text-white hover:text-teal-soft"
-                    >
-                      {item.product.name}
-                    </Link>
-                    {item.variant && (
-                      <p className="text-xs text-gray-500">
-                        {item.variant.name}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => removeItem(item.key)}
-                    className="rounded-lg p-1.5 text-gray-500 hover:text-danger"
-                    aria-label={`Remove ${item.product.name} from cart`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center rounded-lg border border-border">
+          {items.map((item) => {
+            const productId = item.product?.id ?? item.productId;
+            const productName =
+              item.product?.name ?? item.productName ?? `Product #${productId}`;
+            const itemPrice = unitPrice(item);
+            const lineTotal = itemPrice * (item.qty ?? 1);
+
+            return (
+              <div
+                key={item.key}
+                className="flex gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-violet-dim/50"
+              >
+                <ProductThumb
+                  id={productId}
+                  imageUrl={item.product?.imageUrl}
+                  className="h-20 w-20 shrink-0"
+                />
+                <div className="flex flex-1 flex-col justify-between">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <Link
+                        to={`/product/${productId}`}
+                        className="font-mono text-sm font-medium text-white hover:text-teal-soft"
+                      >
+                        {productName}
+                      </Link>
+                      {item.variant && (
+                        <p className="text-xs text-gray-500">
+                          {item.variant.name}
+                        </p>
+                      )}
+                    </div>
                     <button
-                      onClick={() => updateQty(item.key, item.qty - 1)}
-                      className="p-2 text-gray-400 hover:text-white"
-                      aria-label={`Decrease quantity of ${item.product.name}`}
+                      onClick={() => removeItem(item.key)}
+                      className="rounded-lg p-1.5 text-gray-500 hover:text-danger"
+                      aria-label={`Remove ${productName} from cart`}
                     >
-                      <Minus size={14} />
+                      <Trash2 size={16} />
                     </button>
-                    <span
-                      className="w-7 text-center text-sm text-white"
-                      aria-live="polite"
-                    >
-                      {item.qty}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center rounded-lg border border-border">
+                      <button
+                        onClick={() => updateQty(item.key, (item.qty ?? 1) - 1)}
+                        className="p-2 text-gray-400 hover:text-white"
+                        aria-label={`Decrease quantity of ${productName}`}
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <span
+                        className="w-7 text-center text-sm text-white"
+                        aria-live="polite"
+                      >
+                        {item.qty ?? 1}
+                      </span>
+                      <button
+                        onClick={() => updateQty(item.key, (item.qty ?? 1) + 1)}
+                        className="p-2 text-gray-400 hover:text-white"
+                        aria-label={`Increase quantity of ${productName}`}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                    <span className="font-semibold text-white">
+                      ${lineTotal.toFixed(2)}
                     </span>
-                    <button
-                      onClick={() => updateQty(item.key, item.qty + 1)}
-                      className="p-2 text-gray-400 hover:text-white"
-                      aria-label={`Increase quantity of ${item.product.name}`}
-                    >
-                      <Plus size={14} />
-                    </button>
                   </div>
-                  <span className="font-semibold text-white">
-                    ${(unitPrice(item) * item.qty).toFixed(2)}
-                  </span>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Summary */}

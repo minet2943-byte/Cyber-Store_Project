@@ -6,6 +6,12 @@ import {
   updateWebsiteSetting,
   deleteWebsiteSetting,
 } from "../service/setting";
+import {
+  getContactChannels,
+  createContactChannel,
+  updateContactChannel,
+  deleteContactChannel as apiDeleteContactChannel,
+} from "../service/contact";
 
 const StoreSettingsContext = createContext(null);
 const STORAGE_KEY = "cyber-store-settings";
@@ -15,7 +21,8 @@ export const DEFAULT_CONTACTS = [
     id: "fb-1",
     iconType: "facebook",
     title: "Facebook Page (Owner)",
-    description: "Direct owner channel, official announcements, project updates & Messenger support.",
+    description:
+      "Direct owner channel, official announcements, project updates & Messenger support.",
     contactValue: "facebook.com/cyberstore",
     linkUrl: "https://www.facebook.com",
     badge: "Official Page",
@@ -28,7 +35,8 @@ export const DEFAULT_CONTACTS = [
     id: "tg-1",
     iconType: "telegram",
     title: "Telegram Channel & Chat",
-    description: "Fast 1-on-1 direct messaging, stock drops, urgent requests & community desk.",
+    description:
+      "Fast 1-on-1 direct messaging, stock drops, urgent requests & community desk.",
     contactValue: "t.me/cyberstore_official",
     linkUrl: "https://t.me",
     badge: "Instant Chat",
@@ -41,7 +49,8 @@ export const DEFAULT_CONTACTS = [
     id: "sup-1",
     iconType: "headphones",
     title: "Technical Support",
-    description: "Assistance with hardware diagnostics, component compatibility, drivers, and warranties.",
+    description:
+      "Assistance with hardware diagnostics, component compatibility, drivers, and warranties.",
     contactValue: "support@cyberstore.tech",
     linkUrl: "mailto:support@cyberstore.tech",
     badge: "24/7 Realtime",
@@ -54,7 +63,8 @@ export const DEFAULT_CONTACTS = [
     id: "sal-1",
     iconType: "mail",
     title: "Sales & Custom Rigs",
-    description: "Consultation for enterprise workstations, bulk silicon purchases, and custom cooling loops.",
+    description:
+      "Consultation for enterprise workstations, bulk silicon purchases, and custom cooling loops.",
     contactValue: "sales@cyberstore.tech",
     linkUrl: "mailto:sales@cyberstore.tech",
     badge: "< 2hr Response",
@@ -67,7 +77,8 @@ export const DEFAULT_CONTACTS = [
     id: "ph-1",
     iconType: "phone",
     title: "Direct Voice Line",
-    description: "Direct priority phone support for verified orders, live inquiries, and immediate hotline.",
+    description:
+      "Direct priority phone support for verified orders, live inquiries, and immediate hotline.",
     contactValue: "+1 (800) 555-CYBER",
     linkUrl: "tel:+18005552923",
     badge: "Mon-Sat 8AM-8PM PST",
@@ -80,7 +91,8 @@ export const DEFAULT_CONTACTS = [
     id: "loc-1",
     iconType: "map-pin",
     title: "Global Hardware Lab",
-    description: "Cyber-Store Engineering Hub, Testing Benchmark Chamber & Silicon Validation Facility.",
+    description:
+      "Cyber-Store Engineering Hub, Testing Benchmark Chamber & Silicon Validation Facility.",
     contactValue: "404 Silicon Ave, Cyber District, CA",
     linkUrl: "#lab-location",
     badge: "Silicon District",
@@ -126,7 +138,8 @@ function loadSettings() {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
     const raw = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}");
-    const websiteName = raw.websiteName || raw.siteName || DEFAULT_SETTINGS.websiteName;
+    const websiteName =
+      raw.websiteName || raw.siteName || DEFAULT_SETTINGS.websiteName;
     return {
       ...DEFAULT_SETTINGS,
       ...raw,
@@ -136,9 +149,10 @@ function loadSettings() {
         ...DEFAULT_OPERATING_HOURS,
         ...(raw.operatingHours || {}),
       },
-      customContacts: Array.isArray(raw.customContacts) && raw.customContacts.length > 0
-        ? raw.customContacts
-        : DEFAULT_CONTACTS,
+      customContacts:
+        Array.isArray(raw.customContacts) && raw.customContacts.length > 0
+          ? raw.customContacts
+          : DEFAULT_CONTACTS,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -148,22 +162,42 @@ function loadSettings() {
 export function StoreSettingsProvider({ children }) {
   const [settings, setSettings] = useState(loadSettings);
 
-  // Load website settings from backend API on mount
+  // Load website settings and contact channels from backend API on mount
   useEffect(() => {
     let active = true;
 
     const fetchApiSettings = async () => {
       try {
-        const apiSettings = await getWebsiteSetting();
-        if (active && apiSettings) {
+        const [settingsResult, contactsResult] = await Promise.allSettled([
+          getWebsiteSetting(),
+          getContactChannels(),
+        ]);
+
+        if (!active) return;
+
+        const apiSettings =
+          settingsResult.status === "fulfilled" ? settingsResult.value : null;
+
+        const apiContacts =
+          contactsResult.status === "fulfilled" &&
+          Array.isArray(contactsResult.value) &&
+          contactsResult.value.length > 0
+            ? contactsResult.value
+            : null;
+
+        if (apiSettings || apiContacts) {
           setSettings((current) => {
             const websiteName =
-              apiSettings.websiteName || apiSettings.siteName || current.websiteName;
+              apiSettings?.websiteName ||
+              apiSettings?.siteName ||
+              current.websiteName;
+
             const merged = {
               ...current,
-              ...apiSettings,
+              ...(apiSettings || {}),
               websiteName,
               siteName: websiteName,
+              customContacts: apiContacts || current.customContacts,
             };
 
             try {
@@ -176,7 +210,10 @@ export function StoreSettingsProvider({ children }) {
           });
         }
       } catch (error) {
-        console.warn("Could not load website settings from API, using local fallback.", error);
+        console.warn(
+          "Could not load store data from API, using local fallback.",
+          error,
+        );
       }
     };
 
@@ -257,13 +294,19 @@ export function StoreSettingsProvider({ children }) {
     }
   };
 
-  // Dedicated helper to add or update a contact channel
-  const saveContactChannel = (contact) => {
+  // Dedicated helper to add or update a contact channel with API synchronization
+  const saveContactChannel = async (contact) => {
+    // Optimistic local update
     setSettings((current) => {
       const existing = current.customContacts || DEFAULT_CONTACTS;
       let updated;
-      if (contact.id && existing.some((c) => c.id === contact.id)) {
-        updated = existing.map((c) => (c.id === contact.id ? { ...c, ...contact } : c));
+      if (
+        contact.id &&
+        existing.some((c) => String(c.id) === String(contact.id))
+      ) {
+        updated = existing.map((c) =>
+          String(c.id) === String(contact.id) ? { ...c, ...contact } : c,
+        );
       } else {
         const newContact = {
           ...contact,
@@ -277,16 +320,52 @@ export function StoreSettingsProvider({ children }) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+
+    // Synchronize with Spring Boot API
+    try {
+      const isExistingBackendId =
+        contact.id &&
+        typeof contact.id === "number" &&
+        !String(contact.id).startsWith("contact-");
+
+      if (isExistingBackendId) {
+        await updateContactChannel(contact.id, contact);
+      } else {
+        const created = await createContactChannel(contact);
+        if (created?.id) {
+          setSettings((current) => {
+            const updated = (current.customContacts || []).map((c) =>
+              c.id === contact.id ? { ...c, ...created, id: created.id } : c,
+            );
+            const next = { ...current, customContacts: updated };
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+            return next;
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Could not sync contact channel with backend API:", err);
+    }
   };
 
-  // Dedicated helper to delete a contact channel
-  const deleteContactChannel = (id) => {
+  // Dedicated helper to delete a contact channel with API synchronization
+  const deleteContactChannel = async (id) => {
     setSettings((current) => {
-      const updated = (current.customContacts || []).filter((c) => c.id !== id);
+      const updated = (current.customContacts || []).filter(
+        (c) => String(c.id) !== String(id),
+      );
       const next = { ...current, customContacts: updated };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+
+    if (typeof id === "number" || (!isNaN(id) && !String(id).includes("-"))) {
+      try {
+        await apiDeleteContactChannel(id);
+      } catch (err) {
+        console.warn("Could not delete contact channel on backend API:", err);
+      }
+    }
   };
 
   // Dedicated helper to update operating hours

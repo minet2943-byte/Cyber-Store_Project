@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Button from "../../components/Button";
 import { useAuth } from "../../context/AuthContext";
 
@@ -12,14 +12,12 @@ export default function Register() {
 
   const { register, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const from = location.state?.from?.pathname || "/products";
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate(from, { replace: true });
+      navigate("/", { replace: true });
     }
-  }, [isAuthenticated, from, navigate]);
+  }, [isAuthenticated, navigate]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -31,7 +29,7 @@ export default function Register() {
 
       // Handles AuthContext implementations returning boolean/object or void on success
       if (result === undefined || result?.success || result) {
-        navigate(from, { replace: true });
+        navigate("/", { replace: true });
       } else {
         setError(result?.message || "Registration failed. Please try again.");
       }
